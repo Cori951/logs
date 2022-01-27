@@ -1,0 +1,245 @@
+USE [RepExtCentral_Rep]
+GO
+/****** Object:  StoredProcedure [Repxt].[RutGeneraTablaTBXDETALLEPAS]    Script Date: 26/1/2022 15:01:19 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+/* **************************************************************************** */
+/*                    B A N C O   D E  C R E D I T O   B C P                    */
+/* **************************************************************************** */
+/*                SP:             SP_RE_GENTABLA_TBXDETALLEPAS			*/
+/*                Autor:          XXXXXXXXXXXXXXXX			        */
+/*                Fec. Creación:  XXXXXXX                                       */
+/* **************************************************************************** */
+/*      Genera el archivo cartera por tipo de credito y banca  	*/
+/* **************************************************************************** */
+/* Argumentos									*/
+/*		        Ninguno                 		*/
+/* **************************************************************************** */
+/* Modificaciones								*/
+/* **************************************************************************** */
+/*	CMA1, 08/09/2006, Se coloco la nueva cabecera 				*/
+/*	CMA1, 08/09/2006, Actualizacion de sentencias				*/
+/*	----, 19/05/2008, Modificacion de la sintaxis de consultas por cambio 	*/
+/*                        de standard ANSI SQL 89 a ANSI SQL 92 debido a la	*/
+/*                        Migracion de RepExt a SQL SERVER 2005			*/
+/* **************************************************************************** */
+
+
+ ALTER PROCEDURE  [Repxt].[RutGeneraTablaTBXDETALLEPAS]
+    AS
+    
+/* **************************************************************************** */
+/*                          Obtiene fecha de proceso 			*/
+/* **************************************************************************** */
+
+TRUNCATE TABLE Repxt.TBXDETPAS 
+--DROP TABLE #TMP0
+declare @FechaCambio varchar(8)
+	select @FechaCambio = LX_DESC_CORTA 
+				from Repxt.TBLLEXICOS  
+				WHERE LX_TIPOLEX  LIKE 'FECHADIA%'
+
+SELECT  @FechaCambio
+
+/* **************************************************************************** */
+/*                  Obtiene tipo de cambio de la fecha de proceso 			*/
+/* **************************************************************************** */
+
+SELECT CAM_FECHAINI, CAM_FECHAFIN, CAM_MONCAMBIO, CAM_TIPCAMBIO --INTO #TMP0 
+ FROM Repxt.VIEW_RE_CAMBIOS 
+WHERE @FechaCambio >=CAM_FECHAINI AND @FechaCambio<= CAM_FECHAFIN 
+
+/* **************************************************************************** */
+/*                      Selecciona tipo de cambio de $us. 			*/
+/* **************************************************************************** */
+
+declare @Cambiosus varchar(8)
+	select @Cambiosus = CAM_TIPCAMBIO 
+				from #TMP0 
+				WHERE CAM_MONCAMBIO = '840'
+
+
+
+SELECT  @Cambiosus
+
+/****************************************************************/
+/*	Modificacion de sintaxis por el cambio de standard	*/
+/****************************************************************/   ----23sec
+
+SELECT CP_SUCURSAL, CL_CIC, CL_IDC + CL_EXTIDC AS IDC, CL_TIPIDC, CL_TIPCLIENTE, 
+FN_BANCA, FN_NOMBREFUN, CP_NROCUENTA, 
+CASE WHEN CL_TIPPERSONA = 'P'
+         THEN RTRIM(CL_PATCLIENTE)+' '+RTRIM(CL_MATCLIENTE)+' '+RTRIM(CL_NOMBRECLIENTE)
+         ELSE RTRIM(CL_NOMCLIENTE) END AS CLIENTE, CP_SITUACION, CP_NOMTIPSITUAC, CP_MONEDA, 
+case WHEN CP_MONEDA = '068' THEN 'BS' 
+     WHEN CP_MONEDA = '840' THEN '$US.'
+     WHEN CP_MONEDA = 'UFV' THEN 'UFV'
+     WHEN CP_MONEDA = 'CMV' THEN 'CMV'
+     else 'ERR' END AS MONEDA, 
+CP_MTOAPERTURA,  CP_SLDACTUAL AS SALDO,  CP_FECAPERTU, CP_FECVENCTO, CP_TASINTNOMACREEDOR, 
+CP_TIOAUX, CP_FECULTMOV, CP_APLICATIVO, CP_FLGGARANT, CL_TIPPERSONA, CL_FINSOCIAL,
+CP_FLGCTAFISCAL, 
+CASE WHEN CP_APLICATIVO = 'DPL' THEN 
+(DATEDIFF(dd,CONVERT(DATETIME ,CP_FECAPERTU),CONVERT(DATETIME,CP_FECVENCTO)))
+ELSE 0   END as PLAZO, CP_TIPBLOQUEO, CP_NOMTIPBLOQUEO, CP_CIC, CP_PRODUCTO, CP_NOMPRODUCTO, 
+CL_RUC, CP_INTGANMES, CP_DIAPAGINTERES, CP_FECULTRENOV, CL_FEC01, CP_FECBLOQUEO, 
+ CASE WHEN (CP_SLDACRMES <> 0 AND CP_SLDDEUMES <> 0) 
+                 AND (CP_NRODIAACRMES <> 0 AND CP_NRODIADEUMES <> 0) AND CP_APLICATIVO IN ('AHO','CTE')
+                 THEN (((CP_SLDDEUMES * (-1)) + CP_SLDACRMES) / (CP_NRODIADEUMES + CP_NRODIAACRMES))
+            WHEN (CP_SLDACRMES = 0 AND CP_SLDDEUMES <> 0) 
+                 AND (CP_NRODIAACRMES = 0 AND CP_NRODIADEUMES <> 0) AND CP_APLICATIVO IN ('AHO','CTE')
+                 THEN ((CP_SLDDEUMES * (-1))/CP_NRODIADEUMES)
+            WHEN (CP_SLDACRMES <> 0 AND CP_SLDDEUMES = 0) 
+                  AND (CP_NRODIAACRMES <> 0 AND CP_NRODIADEUMES = 0) AND CP_APLICATIVO IN ('AHO','CTE')
+                  THEN (CP_SLDACRMES/CP_NRODIAACRMES)
+                  ELSE 0 END AS CP_SLDPROMEDIO 
+INTO #TMP   
+select top 5 * FROM Repxt.TBLCTAPAS 
+	inner join  Repxt.TBLDBC on
+		CP_CIC = CL_CIC 
+	left outer join Repxt.TBLFUNNEG on 
+		CL_FUNNEGOCIOS = FN_FUNNEGOCIO 
+
+WHERE 
+CP_SITUACION NOT IN('03', '04', '05') 
+AND CP_SLDACTUAL > 0 
+
+
+
+
+
+INSERT INTO #TMP   ---- sec16       62834
+SELECT CP_SUCURSAL, CL_CIC, CL_IDC + CL_EXTIDC AS IDC, CL_TIPIDC, CL_TIPCLIENTE, 
+FN_BANCA, FN_NOMBREFUN, CP_NROCUENTA, 
+CASE WHEN CL_TIPPERSONA = 'P'
+         THEN RTRIM(CL_PATCLIENTE)+' '+RTRIM(CL_MATCLIENTE)+' '+RTRIM(CL_NOMBRECLIENTE)
+         ELSE RTRIM(CL_NOMCLIENTE) END AS CLIENTE, CP_SITUACION, CP_NOMTIPSITUAC, CP_MONEDA, 
+case WHEN CP_MONEDA = '068' THEN 'BS' 
+     WHEN CP_MONEDA = '840' THEN '$US.'
+     WHEN CP_MONEDA = 'UFV' THEN 'UFV'
+     WHEN CP_MONEDA = 'CMV' THEN 'CMV'
+     else 'ERR' END AS MONEDA, 
+CP_MTOAPERTURA,  CP_SLDACTUAL AS SALDO,  CP_FECAPERTU, CP_FECVENCTO, CP_TASINTNOMACREEDOR, 
+CP_TIOAUX, CP_FECULTMOV, CP_APLICATIVO, CP_FLGGARANT, CL_TIPPERSONA, CL_FINSOCIAL,
+CP_FLGCTAFISCAL, 
+CASE WHEN CP_APLICATIVO = 'DPL' THEN 
+(DATEDIFF(dd,CONVERT(DATETIME ,CP_FECAPERTU),CONVERT(DATETIME,CP_FECVENCTO)))
+ELSE 0   END as PLAZO, CP_TIPBLOQUEO, CP_NOMTIPBLOQUEO, CP_CIC, CP_PRODUCTO, CP_NOMPRODUCTO, 
+CL_RUC, CP_INTGANMES, CP_DIAPAGINTERES, CP_FECULTRENOV, CL_FEC01, CP_FECBLOQUEO, 
+ CASE WHEN (CP_SLDACRMES <> 0 AND CP_SLDDEUMES <> 0) 
+                 AND (CP_NRODIAACRMES <> 0 AND CP_NRODIADEUMES <> 0) AND CP_APLICATIVO IN ('AHO','CTE')
+                 THEN (((CP_SLDDEUMES * (-1)) + CP_SLDACRMES) / (CP_NRODIADEUMES + CP_NRODIAACRMES))
+            WHEN (CP_SLDACRMES = 0 AND CP_SLDDEUMES <> 0) 
+                 AND (CP_NRODIAACRMES = 0 AND CP_NRODIADEUMES <> 0) AND CP_APLICATIVO IN ('AHO','CTE')
+                 THEN ((CP_SLDDEUMES * (-1))/CP_NRODIADEUMES)
+            WHEN (CP_SLDACRMES <> 0 AND CP_SLDDEUMES = 0) 
+                  AND (CP_NRODIAACRMES <> 0 AND CP_NRODIADEUMES = 0) AND CP_APLICATIVO IN ('AHO','CTE')
+                  THEN (CP_SLDACRMES/CP_NRODIAACRMES)
+                  ELSE 0 END AS CP_SLDPROMEDIO 
+FROM Repxt.TBLCTAPAS 
+	inner join Repxt.TBLDBC on
+		CP_CIC = CL_CIC 
+	left outer join Repxt.TBLFUNNEG on 
+		CL_FUNNEGOCIOS = FN_FUNNEGOCIO 
+
+WHERE 
+CP_SITUACION NOT IN('03', '04', '05') 
+AND CP_SLDACTUAL = 0 
+AND CP_APLICATIVO IN ('AHO','CTE')
+
+
+/****************************************************************/
+/*	Fin de Modificacion por cambio de standard		*/
+/****************************************************************/
+
+UPDATE #TMP ----9 sec 828234
+SET PLAZO = 0 
+WHERE CP_APLICATIVO IN ('AHO', 'CTE' )
+
+
+UPDATE  #TMP  
+SET FN_BANCA = 'P' 
+WHERE FN_BANCA NOT IN ('P', 'K','C', 'E')
+
+/* **************************************************************************** */
+/*                          Incluye cuenta contable 			*/
+/* **************************************************************************** */
+/*UPDATE #TMP     
+SET  CP_TIOAUX = (CASE WHEN (CP_NRODIAPLAZO BETWEEN   0 AND   30) 
+             AND CP_FLGGARANT  = 'N' THEN 'DP0030'
+             WHEN (CP_NRODIAPLAZO BETWEEN  31 AND   60) AND CP_FLGGARANT = 'N' THEN 'DP0060'
+             WHEN (CP_NRODIAPLAZO BETWEEN  61 AND   90) AND CP_FLGGARANT = 'N' THEN 'DP0090'
+             WHEN (CP_NRODIAPLAZO BETWEEN  91 AND  180) AND CP_FLGGARANT = 'N' THEN 'DP0180'
+             WHEN (CP_NRODIAPLAZO BETWEEN 181 AND  360) AND CP_FLGGARANT = 'N' THEN 'DP0360'
+             WHEN (CP_NRODIAPLAZO BETWEEN 361 AND  720) AND CP_FLGGARANT = 'N' THEN 'DP0720'
+             WHEN (CP_NRODIAPLAZO BETWEEN 721 AND 1080) AND CP_FLGGARANT = 'N' THEN 'DP1080'
+             WHEN  CP_NRODIAPLAZO > 1080                AND CP_FLGGARANT = 'N' THEN 'DPMM80'
+             WHEN  CP_FLGGARANT = 'S'                                          THEN 'DPGARA'
+                    END)
+             WHERE CTA = '21301' */
+                    
+
+SELECT A.*,  SUBSTRING(TX_CTACTBLE, 1, 5) AS CTA INTO #TMP2 ---18sec 830940
+ FROM  #TMP A, Repxt.TBLTIOAUXCTBLE B   
+WHERE CP_TIOAUX = TX_TIOAUX AND 
+CP_MONEDA = TX_MONEDA AND CP_SITUACION = TX_SITUACION 
+--AND  TX_SITUACION = '0N'
+ORDER BY TX_CTACTBLE 
+
+/* **************************************************************************** */
+/*                  Adiciona tarjetas de credito la parte contingente  			*/
+/* **************************************************************************** */
+/*                      Aumenta columna de saldo en bs 			*/
+/* **************************************************************************** */
+
+SELECT B.*, (SALDO * CAM_TIPCAMBIO) AS SALDOBS  ---4 83690
+INTO #TMP3 
+FROM  #TMP2 B, #TMP0 A  
+WHERE  CP_MONEDA <> '068' 
+AND CAM_MONCAMBIO = CP_MONEDA 
+
+INSERT INTO #TMP3                   --14   747250
+SELECT *, (SALDO * 1)  AS SALDOBS 
+FROM  #TMP2 
+WHERE CP_MONEDA = '068' 
+
+update #TMP3                      ----sec4    14
+set CTA = '23507'  
+WHERE CP_APLICATIVO = 'AHO' 
+AND CTA LIKE '212%' 
+AND CL_CIC IN (SELECT ENT_CIC FROM Repxt.TBLENTFIN) 
+
+update #TMP3                    ---sec2    66
+set CTA = '23103'  
+WHERE CP_APLICATIVO = 'CTE' 
+AND SUBSTRING(CTA, 1, 3) IN ('211', '214')
+ AND CL_CIC IN (SELECT ENT_CIC FROM Repxt.TBLENTFIN)
+
+UPDATE #TMP3                  --1   0
+SET CTA = '21404'  
+WHERE CP_APLICATIVO = 'DPL' 
+AND CP_FLGGARANT = 'S' 
+AND CTA LIKE '213%' 
+
+/*************************************************/
+-- Inclusion de Dpf Desmaterializado Bloqueado
+/*************************************************/
+UPDATE #TMP3
+SET CTA = '21408'
+WHERE CP_APLICATIVO = 'DPL' 
+AND CP_FLGGARANT = 'S' 
+AND CTA LIKE '215%' 
+
+
+INSERT INTO  select * from Repxt.TBXDETPAS_a
+SELECT *  FROM #TMP3 
+
+
+DROP TABLE #TMP 
+DROP TABLE #TMP2
+DROP TABLE #TMP3
+
+
